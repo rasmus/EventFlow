@@ -22,6 +22,7 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 using System;
+using System.Collections;
 using System.Threading;
 using System.Threading.Tasks;
 using EventFlow.Core;
@@ -30,37 +31,46 @@ using EventFlow.Provided.Jobs;
 
 namespace EventFlow.Commands
 {
-    public class CommandScheduler : ICommandScheduler
+    public class CommandScheduler : CommandScheduler<string>
+    {
+        public CommandScheduler(IJobScheduler jobScheduler, ICommandDefinitionService commandDefinitionService, IJsonSerializer serializer)
+            : base(jobScheduler, commandDefinitionService, serializer)
+        {
+        }
+    }
+
+    public class CommandScheduler<TSerialized> : ICommandScheduler
+        where TSerialized : IEnumerable
     {
         private readonly IJobScheduler _jobScheduler;
         private readonly ICommandDefinitionService _commandDefinitionService;
-        private readonly IJsonSerializer _jsonSerializer;
+        private readonly ISerializer<TSerialized> _serializer;
 
         public CommandScheduler(
             IJobScheduler jobScheduler,
             ICommandDefinitionService commandDefinitionService,
-            IJsonSerializer jsonSerializer)
+            ISerializer<TSerialized> serializer)
         {
             _jobScheduler = jobScheduler;
             _commandDefinitionService = commandDefinitionService;
-            _jsonSerializer = jsonSerializer;
+            _serializer = serializer;
         }
 
         public Task ScheduleAsync(ICommand command, DateTimeOffset runAt, CancellationToken cancellationToken)
         {
-            var publishCommandJob = PublishCommandJob.Create(
+            var publishCommandJob = PublishCommandJob<TSerialized>.Create(
                 command,
                 _commandDefinitionService,
-                _jsonSerializer);
+                _serializer);
             return _jobScheduler.ScheduleAsync(publishCommandJob, runAt, cancellationToken);
         }
 
         public Task ScheduleAsync(ICommand command, TimeSpan delay, CancellationToken cancellationToken)
         {
-            var publishCommandJob = PublishCommandJob.Create(
+            var publishCommandJob = PublishCommandJob<TSerialized>.Create(
                 command,
                 _commandDefinitionService,
-                _jsonSerializer);
+                _serializer);
             return _jobScheduler.ScheduleAsync(publishCommandJob, delay, cancellationToken);
         }
     }

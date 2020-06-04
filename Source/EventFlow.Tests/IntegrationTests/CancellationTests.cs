@@ -141,7 +141,7 @@ namespace EventFlow.Tests.IntegrationTests
                     v => v.Should().BeTrue(),
                     v => v.Should().BeFalse()),
 
-                new Step<IReadOnlyCollection<ICommittedDomainEvent>>(
+                new Step<IReadOnlyCollection<ICommittedDomainEvent<string>>>(
                     CancellationBoundary.BeforeUpdatingReadStores,
                     _eventPersistence.CommitCompletionSource,
                     () => _eventPersistence.LoadCommittedEventsAsync(id, 0, CancellationToken.None),
@@ -360,21 +360,21 @@ namespace EventFlow.Tests.IntegrationTests
             public TaskCompletionSource<bool> CommitCompletionSource { get; } = new TaskCompletionSource<bool>();
             public TaskCompletionSource<bool> LoadCompletionSource { get; } = new TaskCompletionSource<bool>();
 
-            public Task<AllCommittedEventsPage> LoadAllCommittedEvents(GlobalPosition globalPosition, int pageSize,
+            public Task<AllCommittedEventsPage<string>> LoadAllCommittedEvents(GlobalPosition globalPosition, int pageSize,
                 CancellationToken cancellationToken)
             {
                 return _inner.LoadAllCommittedEvents(globalPosition, pageSize, cancellationToken);
             }
 
-            public async Task<IReadOnlyCollection<ICommittedDomainEvent>> CommitEventsAsync(IIdentity id,
-                IReadOnlyCollection<SerializedEvent> serializedEvents, CancellationToken cancellationToken)
+            public async Task<IReadOnlyCollection<ICommittedDomainEvent<string>>> CommitEventsAsync(IIdentity id,
+                IReadOnlyCollection<SerializedEvent<string>> serializedEvents, CancellationToken cancellationToken)
             {
                 var result = await _inner.CommitEventsAsync(id, serializedEvents, cancellationToken);
                 await CommitCompletionSource.Task;
                 return result;
             }
 
-            public async Task<IReadOnlyCollection<ICommittedDomainEvent>> LoadCommittedEventsAsync(IIdentity id,
+            public async Task<IReadOnlyCollection<ICommittedDomainEvent<string>>> LoadCommittedEventsAsync(IIdentity id,
                 int fromEventSequenceNumber, CancellationToken cancellationToken)
             {
                 var result = await _inner.LoadCommittedEventsAsync(id, fromEventSequenceNumber, cancellationToken);

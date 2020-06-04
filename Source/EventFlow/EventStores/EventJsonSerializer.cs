@@ -45,13 +45,13 @@ namespace EventFlow.EventStores
             _domainEventFactory = domainEventFactory;
         }
 
-        public SerializedEvent Serialize(
+        public SerializedEvent<string> Serialize(
             IDomainEvent domainEvent)
         {
             return Serialize(domainEvent.GetAggregateEvent(), domainEvent.Metadata);
         }
 
-        public SerializedEvent Serialize(IAggregateEvent aggregateEvent, IEnumerable<KeyValuePair<string, string>> metadatas)
+        public SerializedEvent<string> Serialize(IAggregateEvent aggregateEvent, IEnumerable<KeyValuePair<string, string>> metadatas)
         {
             var eventDefinition = _eventDefinitionService.GetDefinition(aggregateEvent.GetType());
 
@@ -84,7 +84,7 @@ namespace EventFlow.EventStores
             return Deserialize(metadata.AggregateId, json, metadata);
         }
 
-        public IDomainEvent Deserialize(ICommittedDomainEvent committedDomainEvent)
+        public IDomainEvent Deserialize(ICommittedDomainEvent<string> committedDomainEvent)
         {
             var metadata = (IMetadata)_jsonSerializer.Deserialize<Metadata>(committedDomainEvent.Metadata);
             return Deserialize(committedDomainEvent.AggregateId, committedDomainEvent.Data, metadata);
@@ -92,7 +92,7 @@ namespace EventFlow.EventStores
 
         public IDomainEvent<TAggregate, TIdentity> Deserialize<TAggregate, TIdentity>(
             TIdentity id,
-            ICommittedDomainEvent committedDomainEvent)
+            ICommittedDomainEvent<string> committedDomainEvent)
             where TAggregate : IAggregateRoot<TIdentity>
             where TIdentity : IIdentity
         {

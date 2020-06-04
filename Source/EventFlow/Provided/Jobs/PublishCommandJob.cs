@@ -21,6 +21,7 @@
 // IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+using System.Collections;
 using System.Threading;
 using System.Threading.Tasks;
 using EventFlow.Commands;
@@ -31,10 +32,20 @@ using EventFlow.Jobs;
 namespace EventFlow.Provided.Jobs
 {
     [JobVersion("PublishCommand", 1)]
-    public class PublishCommandJob : IJob
+    public class PublishCommandJob : PublishCommandJob<string>
+    {
+        public PublishCommandJob(string data, string name, int version)
+            : base(data, name, version)
+        {
+        }
+    }
+
+    [JobVersion("PublishCommand", 1)]
+    public class PublishCommandJob<TSerialized> : IJob
+        where TSerialized : IEnumerable
     {
         public PublishCommandJob(
-            string data,
+            TSerialized data,
             string name,
             int version)
         {
@@ -43,18 +54,18 @@ namespace EventFlow.Provided.Jobs
             Version = version;
         }
 
-        public string Data { get; }
+        public TSerialized Data { get; }
         public string Name { get; }
         public int Version { get; }
 
         public Task ExecuteAsync(IResolver resolver, CancellationToken cancellationToken)
         {
             var commandDefinitionService = resolver.Resolve<ICommandDefinitionService>();
-            var jsonSerializer = resolver.Resolve<IJsonSerializer>();
+            var serializer = resolver.Resolve<ISerializer<TSerialized>>();
             var commandBus = resolver.Resolve<ICommandBus>();
 
             var commandDefinition = commandDefinitionService.GetDefinition(Name, Version);
-            var command = (ICommand) jsonSerializer.Deserialize(Data, commandDefinition.Type);
+            var command = (ICommand) serializer.Deserialize(Data, commandDefinition.Type);
 
             return command.PublishAsync(commandBus, cancellationToken);
         }
@@ -64,20 +75,26 @@ namespace EventFlow.Provided.Jobs
             IResolver resolver)
         {
             var commandDefinitionService = resolver.Resolve<ICommandDefinitionService>();
-            var jsonSerializer = resolver.Resolve<IJsonSerializer>();
+            var serializer = resolver.Resolve<IJsonSerializer>();
 
-            return Create(command, commandDefinitionService, jsonSerializer);
-        }
-
-        public static PublishCommandJob Create(
-            ICommand command,
-            ICommandDefinitionService commandDefinitionService,
-            IJsonSerializer jsonSerializer)
-        {
-            var data = jsonSerializer.Serialize(command);
+            var data = serializer.Serialize(command);
             var commandDefinition = commandDefinitionService.GetDefinition(command.GetType());
 
             return new PublishCommandJob(
+                data,
+                commandDefinition.Name,
+                commandDefinition.Version);
+        }
+
+        public static PublishCommandJob<TSerialized> Create(
+            ICommand command,
+            ICommandDefinitionService commandDefinitionService,
+            ISerializer<TSerialized> serializer)
+        {
+            var data = serializer.Serialize(command);
+            var commandDefinition = commandDefinitionService.GetDefinition(command.GetType());
+
+            return new PublishCommandJob<TSerialized>(
                 data,
                 commandDefinition.Name,
                 commandDefinition.Version);

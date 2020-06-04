@@ -21,18 +21,28 @@
 // IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+using System.Collections;
 using System.Collections.Generic;
 
 namespace EventFlow.EventStores
 {
-    public class AllCommittedEventsPage
+    public class AllCommittedEventsPage : AllCommittedEventsPage<string>
+    {
+        public AllCommittedEventsPage(GlobalPosition nextGlobalPosition, IReadOnlyCollection<ICommittedDomainEvent<string>> committedDomainEvents)
+            : base(nextGlobalPosition, committedDomainEvents)
+        {
+        }
+    }
+
+    public class AllCommittedEventsPage<TSerialized>
+        where TSerialized : IEnumerable
     {
         public GlobalPosition NextGlobalPosition { get; }
-        public IReadOnlyCollection<ICommittedDomainEvent> CommittedDomainEvents { get; }
+        public IReadOnlyCollection<ICommittedDomainEvent<TSerialized>> CommittedDomainEvents { get; }
 
         public AllCommittedEventsPage(
             GlobalPosition nextGlobalPosition,
-            IReadOnlyCollection<ICommittedDomainEvent> committedDomainEvents)
+            IReadOnlyCollection<ICommittedDomainEvent<TSerialized>> committedDomainEvents)
         {
             NextGlobalPosition = nextGlobalPosition;
             CommittedDomainEvents = committedDomainEvents;

@@ -22,6 +22,7 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 using System;
+using System.Collections;
 using EventFlow.Configuration;
 using EventFlow.EventStores;
 using EventFlow.EventStores.Files;
@@ -44,6 +45,15 @@ namespace EventFlow.Extensions
             where TEventStore : class, IEventPersistence
         {
             return eventFlowOptions.RegisterServices(f => f.Register<IEventPersistence, TEventStore>(lifetime));
+        }
+
+        public static IEventFlowOptions UseEventStore<TEventStore, TSerialized>(
+            this IEventFlowOptions eventFlowOptions,
+            Lifetime lifetime = Lifetime.AlwaysUnique)
+            where TEventStore : class, IEventPersistence<TSerialized>
+            where TSerialized : IEnumerable
+        {
+            return eventFlowOptions.RegisterServices(f => f.Register<IEventPersistence<TSerialized>, TEventStore>(lifetime));
         }
 
         public static IEventFlowOptions UseFilesEventStore(

@@ -21,13 +21,20 @@
 // IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+using System.Collections;
+
 namespace EventFlow.EventStores
 {
-    public interface ICommittedDomainEvent
+    public interface ICommittedDomainEvent : ICommittedDomainEvent<string>
+    {
+    }
+
+    public interface ICommittedDomainEvent<TSerialized>
+        where TSerialized : IEnumerable
     {
         string AggregateId { get; }
-        string Data { get; }
-        string Metadata { get; }
+        TSerialized Data { get; set; }
+        TSerialized Metadata { get; set; }
         int AggregateSequenceNumber { get; }
     }
 }

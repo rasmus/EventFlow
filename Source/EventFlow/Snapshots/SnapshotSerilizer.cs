@@ -22,6 +22,7 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -32,26 +33,36 @@ using EventFlow.Logs;
 
 namespace EventFlow.Snapshots
 {
-    public class SnapshotSerilizer : ISnapshotSerilizer
+    public class SnapshotSerilizer : SnapshotSerilizer<string>, ISnapshotSerilizer
+    {
+        public SnapshotSerilizer(ILog log, IJsonSerializer serializer, ISnapshotUpgradeService snapshotUpgradeService,
+            ISnapshotDefinitionService snapshotDefinitionService)
+            : base(log, serializer, snapshotUpgradeService, snapshotDefinitionService)
+        {
+        }
+    }
+
+    public class SnapshotSerilizer<TSerialized> : ISnapshotSerilizer<TSerialized>
+        where TSerialized : IEnumerable
     {
         private readonly ILog _log;
-        private readonly IJsonSerializer _jsonSerializer;
+        private readonly ISerializer<TSerialized> _serializer;
         private readonly ISnapshotUpgradeService _snapshotUpgradeService;
         private readonly ISnapshotDefinitionService _snapshotDefinitionService;
 
         public SnapshotSerilizer(
             ILog log,
-            IJsonSerializer jsonSerializer,
+            ISerializer<TSerialized> serializer,
             ISnapshotUpgradeService snapshotUpgradeService,
             ISnapshotDefinitionService snapshotDefinitionService)
         {
             _log = log;
-            _jsonSerializer = jsonSerializer;
+            _serializer = serializer;
             _snapshotUpgradeService = snapshotUpgradeService;
             _snapshotDefinitionService = snapshotDefinitionService;
         }
 
-        public Task<SerializedSnapshot> SerilizeAsync<TAggregate, TIdentity, TSnapshot>(
+        public Task<SerializedSnapshot<TSerialized>> SerilizeAsync<TAggregate, TIdentity, TSnapshot>(
             SnapshotContainer snapshotContainer,
             CancellationToken cancellationToken)
             where TAggregate : ISnapshotAggregateRoot<TIdentity, TSnapshot>
@@ -68,17 +79,17 @@ namespace EventFlow.Snapshots
                     {SnapshotMetadataKeys.SnapshotVersion, snapsnotDefinition.Version.ToString()},
                 }));
 
-            var serializedMetadata = _jsonSerializer.Serialize(updatedSnapshotMetadata);
-            var serializedData = _jsonSerializer.Serialize(snapshotContainer.Snapshot);
+            var serializedMetadata = _serializer.Serialize(updatedSnapshotMetadata);
+            var serializedData = _serializer.Serialize(snapshotContainer.Snapshot);
 
-            return Task.FromResult(new SerializedSnapshot(
+            return Task.FromResult(new SerializedSnapshot<TSerialized>(
                 serializedMetadata,
                 serializedData,
                 updatedSnapshotMetadata));
         }
 
         public async Task<SnapshotContainer> DeserializeAsync<TAggregate, TIdentity, TSnapshot>(
-            CommittedSnapshot committedSnapshot,
+            CommittedSnapshot<TSerialized> committedSnapshot,
             CancellationToken cancellationToken)
             where TAggregate : ISnapshotAggregateRoot<TIdentity, TSnapshot>
             where TIdentity : IIdentity
@@ -86,12 +97,12 @@ namespace EventFlow.Snapshots
         {
             if (committedSnapshot == null) throw new ArgumentNullException(nameof(committedSnapshot));
 
-            var metadata = _jsonSerializer.Deserialize<SnapshotMetadata>(committedSnapshot.SerializedMetadata);
+            var metadata = _serializer.Deserialize<SnapshotMetadata>(committedSnapshot.SerializedMetadata);
             var snapshotDefinition = _snapshotDefinitionService.GetDefinition(metadata.SnapshotName, metadata.SnapshotVersion);
 
             _log.Verbose(() => $"Deserializing snapshot named '{snapshotDefinition.Name}' v{snapshotDefinition.Version} for '{typeof(TAggregate).PrettyPrint()}' v{metadata.AggregateSequenceNumber}");
 
-            var snapshot = (ISnapshot)_jsonSerializer.Deserialize(committedSnapshot.SerializedData, snapshotDefinition.Type);
+            var snapshot = (ISnapshot)_serializer.Deserialize(committedSnapshot.SerializedData, snapshotDefinition.Type);
             var upgradedSnapshot = await _snapshotUpgradeService.UpgradeAsync(snapshot, cancellationToken).ConfigureAwait(false);
 
             return new SnapshotContainer(upgradedSnapshot, metadata);

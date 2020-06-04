@@ -22,6 +22,7 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -54,7 +55,7 @@ namespace EventFlow.EntityFramework.EventStores
             _strategy = strategy;
         }
 
-        public async Task<AllCommittedEventsPage> LoadAllCommittedEvents(GlobalPosition globalPosition, int pageSize,
+        public async Task<AllCommittedEventsPage<string>> LoadAllCommittedEvents(GlobalPosition globalPosition, int pageSize,
             CancellationToken cancellationToken)
         {
             var startPosition = globalPosition.IsStart
@@ -79,8 +80,8 @@ namespace EventFlow.EntityFramework.EventStores
             }
         }
 
-        public async Task<IReadOnlyCollection<ICommittedDomainEvent>> CommitEventsAsync(IIdentity id,
-            IReadOnlyCollection<SerializedEvent> serializedEvents, CancellationToken cancellationToken)
+        public async Task<IReadOnlyCollection<ICommittedDomainEvent<string>>> CommitEventsAsync(IIdentity id,
+            IReadOnlyCollection<SerializedEvent<string>> serializedEvents, CancellationToken cancellationToken)
         {
             if (!serializedEvents.Any())
                 return new ICommittedDomainEvent[0];
@@ -106,7 +107,7 @@ namespace EventFlow.EntityFramework.EventStores
             {
                 using (var context = _contextProvider.CreateContext())
                 {
-                    context.AddRange(entities);
+                    await context.AddRangeAsync(entities, cancellationToken);
                     await context.SaveChangesAsync(cancellationToken)
                         .ConfigureAwait(false);
                 }
@@ -122,7 +123,7 @@ namespace EventFlow.EntityFramework.EventStores
             return entities;
         }
 
-        public async Task<IReadOnlyCollection<ICommittedDomainEvent>> LoadCommittedEventsAsync(IIdentity id,
+        public async Task<IReadOnlyCollection<ICommittedDomainEvent<string>>> LoadCommittedEventsAsync(IIdentity id,
             int fromEventSequenceNumber, CancellationToken cancellationToken)
         {
             using (var context = _contextProvider.CreateContext())

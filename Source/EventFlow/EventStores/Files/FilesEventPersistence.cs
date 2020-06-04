@@ -22,6 +22,7 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -33,22 +34,34 @@ using EventFlow.Logs;
 
 namespace EventFlow.EventStores.Files
 {
-    public class FilesEventPersistence : IEventPersistence
+    public class FilesEventPersistence : FilesEventPersistence<string>, IEventPersistence
+    {
+        public FilesEventPersistence(ILog log,
+            IJsonSerializer jsonSerializer,
+            IFilesEventStoreConfiguration configuration,
+            IFilesEventLocator filesEventLocator)
+            : base(log, jsonSerializer, configuration, filesEventLocator)
+        {
+        }
+    }
+
+    public class FilesEventPersistence<TSerialized> : IEventPersistence<TSerialized>
+        where TSerialized : IEnumerable
     {
         private readonly ILog _log;
-        private readonly IJsonSerializer _jsonSerializer;
+        private readonly ISerializer<TSerialized> _serializer;
         private readonly IFilesEventLocator _filesEventLocator;
         private readonly AsyncLock _asyncLock = new AsyncLock();
         private readonly string _logFilePath;
         private long _globalSequenceNumber;
         private readonly Dictionary<long, string> _eventLog;
 
-        public class FileEventData : ICommittedDomainEvent
+        private class FileEventData : ICommittedDomainEvent<TSerialized>
         {
             public long GlobalSequenceNumber { get; set; }
             public string AggregateId { get; set; }
-            public string Data { get; set; }
-            public string Metadata { get; set; }
+            public TSerialized Data { get; set; }
+            public TSerialized Metadata { get; set; }
             public int AggregateSequenceNumber { get; set; }
         }
 
@@ -58,21 +71,18 @@ namespace EventFlow.EventStores.Files
             public Dictionary<long, string> Log { get; set; }
         }
 
-        public FilesEventPersistence(
-            ILog log,
-            IJsonSerializer jsonSerializer,
+        public FilesEventPersistence(ILog log,
+            ISerializer<TSerialized> serializer,
             IFilesEventStoreConfiguration configuration,
             IFilesEventLocator filesEventLocator)
         {
             _log = log;
-            _jsonSerializer = jsonSerializer;
+            _serializer = serializer;
             _filesEventLocator = filesEventLocator;
             _logFilePath = Path.Combine(configuration.StorePath, "Log.store");
 
-            if (File.Exists(_logFilePath))
+            if (TryLoadFileData<EventStoreLog>(_logFilePath, out var eventStoreLog))
             {
-                var json = File.ReadAllText(_logFilePath);
-                var eventStoreLog = _jsonSerializer.Deserialize<EventStoreLog>(json);
                 _globalSequenceNumber = eventStoreLog.GlobalSequenceNumber;
                 _eventLog = eventStoreLog.Log ?? new Dictionary<long, string>();
 
@@ -89,8 +99,7 @@ namespace EventFlow.EventStores.Files
             }
         }
 
-        public async Task<AllCommittedEventsPage> LoadAllCommittedEvents(
-            GlobalPosition globalPosition,
+        public async Task<AllCommittedEventsPage<TSerialized>> LoadAllCommittedEvents(GlobalPosition globalPosition,
             int pageSize,
             CancellationToken cancellationToken)
         {
@@ -106,8 +115,10 @@ namespace EventFlow.EventStores.Files
 
                 foreach (var path in paths)
                 {
-                    var committedDomainEvent = await LoadFileEventDataFile(path).ConfigureAwait(false);
-                    committedDomainEvents.Add(committedDomainEvent);
+                    if (TryLoadFileData<FileEventData>(_logFilePath, out var committedDomainEvent))
+                    {
+                        committedDomainEvents.Add(committedDomainEvent);
+                    }
                 }
             }
 
@@ -115,7 +126,7 @@ namespace EventFlow.EventStores.Files
                 ? committedDomainEvents.Max(e => e.GlobalSequenceNumber) + 1
                 : startPosition;
 
-            return new AllCommittedEventsPage(new GlobalPosition(nextPosition.ToString()), committedDomainEvents);
+            return new AllCommittedEventsPage<TSerialized>(new GlobalPosition(nextPosition.ToString()), committedDomainEvents);
         }
 
         private IEnumerable<string> EnumeratePaths(long startPosition)
@@ -131,14 +142,13 @@ namespace EventFlow.EventStores.Files
             }
         }
 
-        public async Task<IReadOnlyCollection<ICommittedDomainEvent>> CommitEventsAsync(
-            IIdentity id,
-            IReadOnlyCollection<SerializedEvent> serializedEvents,
+        public async Task<IReadOnlyCollection<ICommittedDomainEvent<TSerialized>>> CommitEventsAsync(IIdentity id,
+            IReadOnlyCollection<SerializedEvent<TSerialized>> serializedEvents,
             CancellationToken cancellationToken)
         {
             using (await _asyncLock.WaitAsync(cancellationToken).ConfigureAwait(false))
             {
-                var committedDomainEvents = new List<ICommittedDomainEvent>();
+                var committedDomainEvents = new List<ICommittedDomainEvent<TSerialized>>();
 
                 var aggregatePath = _filesEventLocator.GetEntityPath(id);
                 if (!Directory.Exists(aggregatePath))
@@ -161,74 +171,52 @@ namespace EventFlow.EventStores.Files
                         GlobalSequenceNumber = _globalSequenceNumber,
                     };
 
-                    var json = _jsonSerializer.Serialize(fileEventData, true);
+                    var json = _serializer.Serialize(fileEventData, true);
+                    _log.Verbose("Writing file '{0}'", eventPath);
 
-                    using (var streamWriter = CreateNewTextFile(eventPath, fileEventData))
+                    if (File.Exists(eventPath))
                     {
-                        _log.Verbose("Writing file '{0}'", eventPath);
-                        await streamWriter.WriteAsync(json).ConfigureAwait(false);
+                        throw new OptimisticConcurrencyException(
+                            $"Event {fileEventData.AggregateSequenceNumber} already exists for entity with ID '{fileEventData.AggregateId}'");
                     }
+
+                    TryWriteFileData(eventPath, fileEventData);
 
                     committedDomainEvents.Add(fileEventData);
                 }
 
-                using (var streamWriter = File.CreateText(_logFilePath))
+                var eventStoreLog = new EventStoreLog
                 {
-                    _log.Verbose(
-                        "Writing global sequence number '{0}' to '{1}'",
-                        _globalSequenceNumber,
-                        _logFilePath);
-                    var json = _jsonSerializer.Serialize(
-                        new EventStoreLog
-                        {
-                            GlobalSequenceNumber = _globalSequenceNumber,
-                            Log = _eventLog
-                        },
-                        true);
-                    await streamWriter.WriteAsync(json).ConfigureAwait(false);
-                }
+                    GlobalSequenceNumber = _globalSequenceNumber,
+                    Log = _eventLog
+                };
+
+                TryWriteFileData(_logFilePath, eventStoreLog);
+
+                _log.Verbose(
+                    "Writing global sequence number '{0}' to '{1}'",
+                    _globalSequenceNumber,
+                    _logFilePath);
 
                 return committedDomainEvents;
             }
         }
 
-        private StreamWriter CreateNewTextFile(string path, FileEventData fileEventData)
-        {
-            try
-            {
-                var stream = new FileStream(path, FileMode.CreateNew);
-                return new StreamWriter(stream);
-            }
-            catch (IOException)
-            {
-                if (File.Exists(path))
-                {
-                    throw new OptimisticConcurrencyException(
-                        $"Event {fileEventData.AggregateSequenceNumber} already exists for entity with ID '{fileEventData.AggregateId}'");
-                }
-
-                throw;
-            }
-        }
-
-        public async Task<IReadOnlyCollection<ICommittedDomainEvent>> LoadCommittedEventsAsync(
-            IIdentity id,
+        public async Task<IReadOnlyCollection<ICommittedDomainEvent<TSerialized>>> LoadCommittedEventsAsync(IIdentity id,
             int fromEventSequenceNumber,
             CancellationToken cancellationToken)
         {
             using (await _asyncLock.WaitAsync(cancellationToken).ConfigureAwait(false))
             {
-                var committedDomainEvents = new List<ICommittedDomainEvent>();
-                for (var i = fromEventSequenceNumber; ; i++)
+                var committedDomainEvents = new List<ICommittedDomainEvent<TSerialized>>();
+                for (var i = fromEventSequenceNumber;; i++)
                 {
                     var eventPath = _filesEventLocator.GetEventPath(id, i);
-                    if (!File.Exists(eventPath))
-                    {
-                        return committedDomainEvents;
-                    }
 
-                    var committedDomainEvent = await LoadFileEventDataFile(eventPath).ConfigureAwait(false);
-                    committedDomainEvents.Add(committedDomainEvent);
+                    if (TryLoadFileData<FileEventData>(eventPath, out var committedDomainEvent))
+                    {
+                        committedDomainEvents.Add(committedDomainEvent);
+                    }
                 }
             }
         }
@@ -243,13 +231,47 @@ namespace EventFlow.EventStores.Files
             }
         }
 
-        private async Task<FileEventData> LoadFileEventDataFile(string eventPath)
+        private bool TryLoadFileData<T>(string path, out T data)
         {
-            using (var streamReader = File.OpenText(eventPath))
+            data = default;
+
+            if (File.Exists(_logFilePath))
             {
-                var json = await streamReader.ReadToEndAsync().ConfigureAwait(false);
-                return _jsonSerializer.Deserialize<FileEventData>(json);
+                switch (_serializer)
+                {
+                    case ISerializer<byte[]> binarySerializer:
+                    {
+                        data = binarySerializer.Deserialize<T>(File.ReadAllBytes(path));
+                        return true;
+                    }
+                    case ISerializer<string> stringSerializer:
+                    {
+                        data = stringSerializer.Deserialize<T>(File.ReadAllText(path));
+                        return true;
+                    }
+                }
             }
+
+            return false;
+        }
+
+        private bool TryWriteFileData<T>(string path, T data)
+        {
+            switch (_serializer)
+            {
+                case ISerializer<byte[]> binarySerializer:
+                {
+                    File.WriteAllBytes(path, binarySerializer.Serialize(data));
+                    return true;
+                }
+                case ISerializer<string> stringSerializer:
+                {
+                    File.WriteAllText(path, stringSerializer.Serialize(data, true));
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private EventStoreLog RecreateEventStoreLog(string path)
@@ -260,12 +282,9 @@ namespace EventFlow.EventStores.Files
                 .Select(f =>
                 {
                     Console.WriteLine(f);
-                    using (var streamReader = File.OpenText(f))
-                    {
-                        var json = streamReader.ReadToEnd();
-                        var fileEventData = _jsonSerializer.Deserialize<FileEventData>(json);
-                        return new { fileEventData.GlobalSequenceNumber, Path = f };
-                    }
+
+                    TryLoadFileData<FileEventData>(f, out var fileEventData);
+                    return new {fileEventData.GlobalSequenceNumber, Path = f};
                 })
                 .ToDictionary(a => a.GlobalSequenceNumber, a => a.Path);
 

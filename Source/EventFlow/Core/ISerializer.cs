@@ -21,32 +21,20 @@
 // IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-using System.Collections.Generic;
-using EventFlow.Aggregates;
-using EventFlow.Core;
+using System;
+using System.Collections;
 
-namespace EventFlow.EventStores
+namespace EventFlow.Core
 {
-    public interface IEventJsonSerializer
+    public interface IJsonSerializer : ISerializer<string>
     {
-        SerializedEvent Serialize(
-            IDomainEvent domainEvent);
+    }
 
-        SerializedEvent Serialize(
-            IAggregateEvent aggregateEvent,
-            IEnumerable<KeyValuePair<string, string>> metadatas);
-
-        IDomainEvent Deserialize(string json, IMetadata metadata);
-
-        IDomainEvent Deserialize(
-            ICommittedDomainEvent committedDomainEvent);
-
-        IDomainEvent<TAggregate, TIdentity> Deserialize<TAggregate, TIdentity>(
-            TIdentity id,
-            ICommittedDomainEvent committedDomainEvent)
-            where TAggregate : IAggregateRoot<TIdentity>
-            where TIdentity : IIdentity;
-
-        IDomainEvent Deserialize(string eventJson, string metadataJson);
+    public interface ISerializer<TSerialized> 
+        where TSerialized : IEnumerable
+    {
+        TSerialized Serialize(object obj, bool indented = false);
+        object Deserialize(TSerialized serialized, Type type);
+        T Deserialize<T>(TSerialized serialized);
     }
 }

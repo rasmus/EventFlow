@@ -32,17 +32,17 @@ namespace EventFlow.Jobs
     public class JobRunner : IJobRunner
     {
         private readonly IJobDefinitionService _jobDefinitionService;
-        private readonly IJsonSerializer _jsonSerializer;
+        private readonly IJsonSerializer _serializer;
         private readonly IResolver _resolver;
 
         public JobRunner(
             IResolver resolver,
             IJobDefinitionService jobDefinitionService,
-            IJsonSerializer jsonSerializer)
+            IJsonSerializer serializer)
         {
             _resolver = resolver;
             _jobDefinitionService = jobDefinitionService;
-            _jsonSerializer = jsonSerializer;
+            _serializer = serializer;
         }
 
         public void Execute(string jobName, int version, string job)
@@ -66,7 +66,7 @@ namespace EventFlow.Jobs
                 throw UnknownJobException.With(jobName, version);
             }
 
-            var executeCommandJob = (IJob) _jsonSerializer.Deserialize(json, jobDefinition.Type);
+            var executeCommandJob = (IJob) _serializer.Deserialize(json, jobDefinition.Type);
             return executeCommandJob.ExecuteAsync(_resolver, cancellationToken);
         }
     }

@@ -22,6 +22,7 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -36,7 +37,16 @@ using MongoDB.Driver;
 
 namespace EventFlow.MongoDB.EventStore
 {
-    public class MongoDbEventPersistence : IEventPersistence
+    public class MongoDbEventPersistence : MongoDbEventPersistence<string>, IEventPersistence
+    {
+        public MongoDbEventPersistence(ILog log, IMongoDatabase mongoDatabase, IMongoDbEventSequenceStore mongoDbEventSequenceStore)
+            : base(log, mongoDatabase, mongoDbEventSequenceStore)
+        {
+        }
+    }
+
+    public class MongoDbEventPersistence<TSerialized> : IEventPersistence<TSerialized>
+        where TSerialized : IEnumerable
     {
         public static readonly string CollectionName = "eventflow.events";
         private readonly ILog _log;
@@ -50,13 +60,13 @@ namespace EventFlow.MongoDB.EventStore
             _mongoDbEventSequenceStore = mongoDbEventSequenceStore;
         }
 
-        public async Task<AllCommittedEventsPage> LoadAllCommittedEvents(GlobalPosition globalPosition, int pageSize, CancellationToken cancellationToken)
+        public async Task<AllCommittedEventsPage<TSerialized>> LoadAllCommittedEvents(GlobalPosition globalPosition, int pageSize, CancellationToken cancellationToken)
         {
             long startPosition = globalPosition.IsStart
                 ? 0
                 : long.Parse(globalPosition.Value);
 
-            List<MongoDbEventDataModel> eventDataModels = await MongoDbEventStoreCollection
+            List<MongoDbEventDataModel<TSerialized>> eventDataModels = await MongoDbEventStoreCollection
                 .Find(model => model._id >= startPosition)
                 .Limit(pageSize)
                 .ToListAsync(cancellationToken)
@@ -66,18 +76,18 @@ namespace EventFlow.MongoDB.EventStore
                 ? eventDataModels.Max(e => e._id) + 1
                 : startPosition;
 
-            return new AllCommittedEventsPage(new GlobalPosition(nextPosition.ToString()), eventDataModels);
+            return new AllCommittedEventsPage<TSerialized>(new GlobalPosition(nextPosition.ToString()), eventDataModels);
         }
 
-        public async Task<IReadOnlyCollection<ICommittedDomainEvent>> CommitEventsAsync(IIdentity id, IReadOnlyCollection<SerializedEvent> serializedEvents, CancellationToken cancellationToken)
+        public async Task<IReadOnlyCollection<ICommittedDomainEvent<TSerialized>>> CommitEventsAsync(IIdentity id, IReadOnlyCollection<SerializedEvent<TSerialized>> serializedEvents, CancellationToken cancellationToken)
         {
             if (!serializedEvents.Any())
             {
-                return new ICommittedDomainEvent[] { };
+                return new ICommittedDomainEvent<TSerialized>[] { };
             }
 
             var eventDataModels = serializedEvents
-                .Select((e, i) => new MongoDbEventDataModel
+                .Select((e, i) => new MongoDbEventDataModel<TSerialized>
                 {
                     _id = _mongoDbEventSequenceStore.GetNextSequence(CollectionName),
                     AggregateId = id.Value,
@@ -105,7 +115,7 @@ namespace EventFlow.MongoDB.EventStore
             return eventDataModels;
         }
 
-        public async Task<IReadOnlyCollection<ICommittedDomainEvent>> LoadCommittedEventsAsync(IIdentity id, int fromEventSequenceNumber, CancellationToken cancellationToken)
+        public async Task<IReadOnlyCollection<ICommittedDomainEvent<TSerialized>>> LoadCommittedEventsAsync(IIdentity id, int fromEventSequenceNumber, CancellationToken cancellationToken)
         {
             return await MongoDbEventStoreCollection
                 .Find(model => model.AggregateId == id.Value && model.AggregateSequenceNumber >= fromEventSequenceNumber)
@@ -122,6 +132,6 @@ namespace EventFlow.MongoDB.EventStore
             _log.Verbose("Deleted entity with ID '{0}' by deleting all of its {1} events", id, affectedRows.DeletedCount);
         }
 
-        private IMongoCollection<MongoDbEventDataModel> MongoDbEventStoreCollection => _mongoDatabase.GetCollection<MongoDbEventDataModel>(CollectionName);
+        private IMongoCollection<MongoDbEventDataModel<TSerialized>> MongoDbEventStoreCollection => _mongoDatabase.GetCollection<MongoDbEventDataModel<TSerialized>>(CollectionName);
     }
 }

@@ -21,6 +21,7 @@
 // IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+using System.Collections;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -28,19 +29,24 @@ using EventFlow.Core;
 
 namespace EventFlow.EventStores
 {
-    public interface IEventPersistence
+    public interface IEventPersistence : IEventPersistence<string>
     {
-        Task<AllCommittedEventsPage> LoadAllCommittedEvents(
+    }
+
+    public interface IEventPersistence<TSerialized>
+        where TSerialized : IEnumerable
+    {
+        Task<AllCommittedEventsPage<TSerialized>> LoadAllCommittedEvents(
             GlobalPosition globalPosition,
             int pageSize,
             CancellationToken cancellationToken);
 
-        Task<IReadOnlyCollection<ICommittedDomainEvent>> CommitEventsAsync(
+        Task<IReadOnlyCollection<ICommittedDomainEvent<TSerialized>>> CommitEventsAsync(
             IIdentity id,
-            IReadOnlyCollection<SerializedEvent> serializedEvents,
+            IReadOnlyCollection<SerializedEvent<TSerialized>> serializedEvents,
             CancellationToken cancellationToken);
 
-        Task<IReadOnlyCollection<ICommittedDomainEvent>> LoadCommittedEventsAsync(
+        Task<IReadOnlyCollection<ICommittedDomainEvent<TSerialized>>> LoadCommittedEventsAsync(
             IIdentity id,
             int fromEventSequenceNumber,
             CancellationToken cancellationToken);

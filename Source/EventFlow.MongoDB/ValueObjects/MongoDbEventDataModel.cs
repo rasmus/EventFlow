@@ -22,6 +22,7 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 using System;
+using System.Collections;
 using EventFlow.EventStores;
 using EventFlow.ValueObjects;
 using MongoDB.Bson.Serialization.Attributes;
@@ -29,7 +30,12 @@ using Newtonsoft.Json;
 
 namespace EventFlow.MongoDB.ValueObjects
 {
-    public class MongoDbEventDataModel : ValueObject, ICommittedDomainEvent
+    public class MongoDbEventDataModel : MongoDbEventDataModel<string>
+    {
+    }
+
+    public class MongoDbEventDataModel<TSerialized> : ValueObject, ICommittedDomainEvent<TSerialized>
+        where TSerialized : IEnumerable
     {
         [BsonElement("_id")]
         public long _id { get; set; }
@@ -49,9 +55,9 @@ namespace EventFlow.MongoDB.ValueObjects
         public int AggregateSequenceNumber { get; set; }
 
         [JsonProperty("data")]
-        public string Data { get; set; }
+        public TSerialized Data { get; set; }
 
         [JsonProperty("metaData")]
-        public string Metadata { get; set; }
+        public TSerialized Metadata { get; set; }
     }
 }
