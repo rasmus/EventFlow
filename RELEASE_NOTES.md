@@ -2,6 +2,9 @@
 
 * Breaking: Elasticsearch NEST Nuget Library updated from v6.1.0 to v7.8.2
 * Fixed: You can now create `Id : Identity<Id>`
+* EventStore has been updated to Nuget Library 20.6.1
+  and a UseEventStoreSubscriptions extensions has been added to help subscribe to stream
+  events based on a filter and then publish them to your internal microservices (pubsub)
 
 ### New in 0.80.4377 (released 2020-10-01)
 
