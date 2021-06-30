@@ -112,8 +112,7 @@ namespace EventFlow.EventStores.InMemory
             }
         }
 
-        public InMemoryEventPersistence(
-            ILog log)
+        public InMemoryEventPersistence(ILog log)
         {
             _log = log;
         }
@@ -142,6 +141,7 @@ namespace EventFlow.EventStores.InMemory
         }
 
         public async Task<IReadOnlyCollection<ICommittedDomainEvent>> CommitEventsAsync(
+            Type aggregateType,
             IIdentity id,
             IReadOnlyCollection<SerializedEvent> serializedEvents,
             CancellationToken cancellationToken)
@@ -175,7 +175,8 @@ namespace EventFlow.EventStores.InMemory
                 var expectedVersion = newCommittedDomainEvents.First().AggregateSequenceNumber - 1;
                 var lastEvent = newCommittedDomainEvents.Last();
 
-                var updateResult = _eventStore.AddOrUpdate(id.Value, s => new ImmutableEventCollection(newCommittedDomainEvents),
+                var key = GetKey(aggregateType, id);
+                var updateResult = _eventStore.AddOrUpdate(key, s => new ImmutableEventCollection(newCommittedDomainEvents),
                     (s, collection) => collection.Count == expectedVersion 
                         ? collection.Add(newCommittedDomainEvents) 
                         : collection);
@@ -190,13 +191,15 @@ namespace EventFlow.EventStores.InMemory
         }
 
         public Task<IReadOnlyCollection<ICommittedDomainEvent>> LoadCommittedEventsAsync(
+            Type aggregateType,
             IIdentity id,
             int fromEventSequenceNumber,
             CancellationToken cancellationToken)
         {
             IReadOnlyCollection<ICommittedDomainEvent> result;
 
-            if (_eventStore.TryGetValue(id.Value, out var committedDomainEvent))
+            var key = GetKey(aggregateType, id);
+            if (_eventStore.TryGetValue(key, out var committedDomainEvent))
                 result = fromEventSequenceNumber <= 1
                     ? (IReadOnlyCollection<ICommittedDomainEvent>) committedDomainEvent
                     : committedDomainEvent.Where(e => e.AggregateSequenceNumber >= fromEventSequenceNumber).ToList();
@@ -206,9 +209,10 @@ namespace EventFlow.EventStores.InMemory
             return Task.FromResult(result);
         }
 
-        public Task DeleteEventsAsync(IIdentity id, CancellationToken cancellationToken)
+        public Task DeleteEventsAsync(Type aggregateType, IIdentity id, CancellationToken cancellationToken)
         {
-            var deleted = _eventStore.TryRemove(id.Value, out var committedDomainEvents);
+            var key = GetKey(aggregateType, id);
+            var deleted = _eventStore.TryRemove(key, out var committedDomainEvents);
 
             if (deleted)
             {
@@ -225,5 +229,8 @@ namespace EventFlow.EventStores.InMemory
         {
             _asyncLock.Dispose();
         }
+   
+        private static string GetKey(Type aggregateType, IIdentity id)
+            => $"{aggregateType.GetAggregateName().Value}_{id.Value}";
     }
 }

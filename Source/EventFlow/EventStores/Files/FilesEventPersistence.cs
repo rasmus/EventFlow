@@ -135,6 +135,7 @@ namespace EventFlow.EventStores.Files
         }
 
         public async Task<IReadOnlyCollection<ICommittedDomainEvent>> CommitEventsAsync(
+            Type aggregateType,
             IIdentity id,
             IReadOnlyCollection<SerializedEvent> serializedEvents,
             CancellationToken cancellationToken)
@@ -143,7 +144,7 @@ namespace EventFlow.EventStores.Files
             {
                 var committedDomainEvents = new List<ICommittedDomainEvent>();
 
-                var aggregatePath = _filesEventLocator.GetEntityPath(id);
+                var aggregatePath = _filesEventLocator.GetEntityPath(aggregateType, id);
                 if (!Directory.Exists(aggregatePath))
                 {
                     Directory.CreateDirectory(aggregatePath);
@@ -151,7 +152,7 @@ namespace EventFlow.EventStores.Files
 
                 foreach (var serializedEvent in serializedEvents)
                 {
-                    var eventPath = _filesEventLocator.GetEventPath(id, serializedEvent.AggregateSequenceNumber);
+                    var eventPath = _filesEventLocator.GetEventPath(aggregateType, id, serializedEvent.AggregateSequenceNumber);
                     _globalSequenceNumber++;
                     _eventLog[_globalSequenceNumber] = GetRelativePath(_configuration.StorePath, eventPath);
 
@@ -195,7 +196,7 @@ namespace EventFlow.EventStores.Files
             }
         }
 
-        private StreamWriter CreateNewTextFile(string path, FileEventData fileEventData)
+        private static StreamWriter CreateNewTextFile(string path, FileEventData fileEventData)
         {
             try
             {
@@ -215,6 +216,7 @@ namespace EventFlow.EventStores.Files
         }
 
         public async Task<IReadOnlyCollection<ICommittedDomainEvent>> LoadCommittedEventsAsync(
+            Type aggregateType,
             IIdentity id,
             int fromEventSequenceNumber,
             CancellationToken cancellationToken)
@@ -224,7 +226,7 @@ namespace EventFlow.EventStores.Files
                 var committedDomainEvents = new List<ICommittedDomainEvent>();
                 for (var i = fromEventSequenceNumber; ; i++)
                 {
-                    var eventPath = _filesEventLocator.GetEventPath(id, i);
+                    var eventPath = _filesEventLocator.GetEventPath(aggregateType, id, i);
                     if (!File.Exists(eventPath))
                     {
                         return committedDomainEvents;
@@ -236,10 +238,10 @@ namespace EventFlow.EventStores.Files
             }
         }
 
-        public async Task DeleteEventsAsync(IIdentity id, CancellationToken cancellationToken)
+        public async Task DeleteEventsAsync(Type aggregateType, IIdentity id, CancellationToken cancellationToken)
         {
             _log.Verbose("Deleting entity with ID '{0}'", id);
-            var path = _filesEventLocator.GetEntityPath(id);
+            var path = _filesEventLocator.GetEntityPath(aggregateType, id);
             using (await _asyncLock.WaitAsync(cancellationToken).ConfigureAwait(false))
             {
                 Directory.Delete(path, true);
@@ -288,7 +290,7 @@ namespace EventFlow.EventStores.Files
         /// <exception cref="ArgumentNullException"></exception>
         /// <exception cref="UriFormatException"></exception>
         /// <exception cref="InvalidOperationException"></exception>
-        private string GetRelativePath(string relativeTo, string path)
+        private static string GetRelativePath(string relativeTo, string path)
         {
 #if NETCOREAPP3_1 || NETCOREAPP3_0
             return Path.GetRelativePath(relativeTo, path);

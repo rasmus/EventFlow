@@ -31,6 +31,7 @@ using EventFlow.Aggregates;
 using EventFlow.Core;
 using EventFlow.EventStores;
 using EventFlow.Exceptions;
+using EventFlow.Extensions;
 using EventFlow.Logs;
 using EventFlow.SQLite.Connections;
 
@@ -97,6 +98,7 @@ namespace EventFlow.SQLite.EventStores
         }
 
         public async Task<IReadOnlyCollection<ICommittedDomainEvent>> CommitEventsAsync(
+            Type aggregateType,
             IIdentity id,
             IReadOnlyCollection<SerializedEvent> serializedEvents,
             CancellationToken cancellationToken)
@@ -166,6 +168,7 @@ namespace EventFlow.SQLite.EventStores
         }
 
         public async Task<IReadOnlyCollection<ICommittedDomainEvent>> LoadCommittedEventsAsync(
+            Type aggregateType,
             IIdentity id,
             int fromEventSequenceNumber,
             CancellationToken cancellationToken)
@@ -175,6 +178,7 @@ namespace EventFlow.SQLite.EventStores
                     GlobalSequenceNumber, BatchId, AggregateId, AggregateName, Data, Metadata, AggregateSequenceNumber
                 FROM EventFlow
                 WHERE
+                    AggregateName = @AggregateName AND
                     AggregateId = @AggregateId AND
                     AggregateSequenceNumber >= @FromEventSequenceNumber
                 ORDER BY
@@ -185,6 +189,7 @@ namespace EventFlow.SQLite.EventStores
                 sql,
                 new
                     {
+                        AggregateName = aggregateType.GetAggregateName().Value,
                         AggregateId = id.Value,
                         FromEventSequenceNumber = fromEventSequenceNumber,
                     })
@@ -193,15 +198,20 @@ namespace EventFlow.SQLite.EventStores
         }
 
         public async Task DeleteEventsAsync(
+            Type aggregateType,
             IIdentity id,
             CancellationToken cancellationToken)
         {
-            const string sql = @"DELETE FROM EventFlow WHERE AggregateId = @AggregateId";
+            const string sql = @"DELETE FROM EventFlow WHERE AggregateName = @AggregateName AND AggregateId = @AggregateId";
             var affectedRows = await _connection.ExecuteAsync(
                 Label.Named("sqlite-delete-aggregate"),
                 cancellationToken,
                 sql,
-                new { AggregateId = id.Value })
+                new
+                    {
+                        AggregateName = aggregateType.GetAggregateName().Value,
+                        AggregateId = id.Value
+                    })
                 .ConfigureAwait(false);
 
             _log.Verbose(
