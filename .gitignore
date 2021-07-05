@@ -5,7 +5,7 @@
 *.suo
 *.user
 *.sln.docstates
-/.vs
+**/.vs
 
 # Build results
 [Dd]ebug/
@@ -210,3 +210,5 @@ FakesAssemblies/
 # Project specific files
 /Tools
 /Build
+/Source/Templates/EventFlow.Library.Template/.vs/EventFlow.Library.Template
+/Source/Templates/.vs/EventFlow.Library.Template
